@@ -1,0 +1,6 @@
+{
+    "name": "Reflection",
+    "image": "vsavkov/clang-p2996:amd64",
+    "workspaceFolder": "/work",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/work,type=bind"
+}
