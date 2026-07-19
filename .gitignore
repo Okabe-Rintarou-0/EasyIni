@@ -3,3 +3,10 @@
 ini_parser
 build/
 .vscode/
+SimpleIni.h
+benchmark-src/
+benchmark/results.csv
+benchmark/large.ini
+benchmark/bench_ini_parser
+test/test_ini_parser
+figures/
