@@ -1,4 +1,8 @@
-# EasyIni — Reflection-based INI Parser for C++26
+<div align="center">
+  <img src="icon.png" width="300px"/>
+  <h1>EasyIni</h1>
+  <p><b>Reflection-based INI Parser for C++26</b></p>
+</div>
 
 A lightweight INI parser powered by **C++26 compile-time reflection (`std::meta`)**.
 
