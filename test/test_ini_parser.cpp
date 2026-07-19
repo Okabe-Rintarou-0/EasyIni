@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <chrono>
 
 // ============================================================
 // Leaf models (each maps to an INI section)
@@ -130,6 +131,15 @@ struct TestIgnoreDefault {
 };
 
 // ============================================================
+// Time parsing models
+// ============================================================
+
+struct TestTimeDate {
+    [[=time_format("%Y-%m-%d")]]
+    std::chrono::sys_days date;
+};
+
+// ============================================================
 // Root containers (each member = one section in INI)
 // ============================================================
 
@@ -152,6 +162,7 @@ struct TestNamingOverrideRoot  { TestNamingOverride val; };
 struct TestNamingPrecedenceRoot{ TestNamingPrecedence val; };
 struct TestIgnoreFieldRoot    { TestIgnoreField val; };
 struct TestIgnoreDefaultRoot  { TestIgnoreDefault val; };
+struct TestTimeDateRoot       { TestTimeDate val; };
 
 // ============================================================
 // Tests
@@ -280,6 +291,15 @@ TEST(IniParser, ignore_default) {
     // 'skip' has [[=ignore]] AND [[=default_value(...)]] — default must NOT apply
     EXPECT_EQ(m.val.skip, "");
     EXPECT_EQ(m.val.name, "found");
+}
+
+TEST(IniParser, time_parse_date) {
+    TestTimeDateRoot m;
+    IniParser::parse("test/time_date.ini", m);
+    auto ymd = std::chrono::year_month_day{m.val.date};
+    EXPECT_EQ(ymd.year(), std::chrono::year{2024});
+    EXPECT_EQ(ymd.month(), std::chrono::month{6});
+    EXPECT_EQ(ymd.day(), std::chrono::day{15});
 }
 
 // ============================================================

@@ -10,6 +10,8 @@
 #include <type_traits>
 #include <charconv>
 #include <cstdint>
+#include <chrono>
+#include <sstream>
 
 // ============================================================
 // Compile-time FNV-1a hash for fast field lookup
@@ -86,6 +88,15 @@ struct Ignore {
 };
 
 consteval Ignore ignore() { return {}; }
+
+struct TimeFormat {
+    const char *format;
+    friend constexpr bool operator==(const TimeFormat&, const TimeFormat&) = default;
+};
+
+consteval TimeFormat time_format(std::string_view fmt) {
+    return {std::define_static_string(fmt)};
+}
 
 // ============================================================
 // Naming convention string transform (compile-time)
@@ -186,6 +197,7 @@ struct FieldMeta {
     std::optional<Range<T>> range;
     std::optional<Length> length;
     std::optional<Default<T>> default_value;
+    std::optional<TimeFormat> time_format;
     bool ignore = false;
 };
 
@@ -252,6 +264,11 @@ consteval bool is_ignore_annotation() {
     return std::meta::type_of(ann) == ^^Ignore;
 }
 
+template <std::meta::info ann>
+consteval bool is_time_format_annotation() {
+    return std::meta::type_of(ann) == ^^TimeFormat;
+}
+
 template <std::meta::info member>
 consteval auto get_field_meta(std::optional<NamingConvention> parent_naming = {}) {
     using T = [:std::meta::type_of(member):];
@@ -264,6 +281,9 @@ consteval auto get_field_meta(std::optional<NamingConvention> parent_naming = {}
         }
         if constexpr (is_ignore_annotation<ann>()) {
             meta.ignore = true;
+        }
+        if constexpr (is_time_format_annotation<ann>()) {
+            meta.time_format = std::meta::extract<TimeFormat>(ann);
         }
         if constexpr (std::meta::has_template_arguments(std::meta::type_of(ann))) {
             if constexpr (is_range_annotation<ann>()) {
@@ -358,6 +378,44 @@ T parse_string(std::string_view sv) {
     std::cerr << "Unknown enumerator \"" << sv << "\" for "
               << std::meta::identifier_of(^^T) << std::endl;
     std::abort();
+}
+
+// ============================================================
+// Time parsing (format-driven, no std::chrono::from_stream needed)
+// ============================================================
+
+template <typename T>
+T parse_time(std::string_view val, std::string_view fmt) {
+    size_t vi = 0, fi = 0;
+    int year = 0, month = 1, day = 1;
+
+    auto read_int = [&](int digits, int &out) {
+        int v = 0, c = 0;
+        while (c < digits && vi < val.size() && val[vi] >= '0' && val[vi] <= '9') {
+            v = v * 10 + (val[vi++] - '0');
+            c++;
+        }
+        out = v;
+    };
+
+    while (fi < fmt.size() && vi < val.size()) {
+        if (fmt[fi] == '%' && fi + 1 < fmt.size()) {
+            switch (fmt[fi + 1]) {
+                case 'Y': read_int(4, year); break;
+                case 'm': read_int(2, month); break;
+                case 'd': read_int(2, day); break;
+                default: vi++; break;
+            }
+            fi += 2;
+        } else {
+            if (fmt[fi] == val[vi]) vi++;
+            fi++;
+        }
+    }
+
+    if constexpr (std::is_same_v<T, std::chrono::sys_days>) {
+        return std::chrono::sys_days{std::chrono::year{year} / month / day};
+    }
 }
 
 // ============================================================
@@ -467,7 +525,13 @@ struct IniParser {
                       if (kh != fh) continue;
                       if (ini_name != key) continue;
                       using FT = [:std::meta::type_of(f):];
-                      so.[:f:] = parse_string<FT>(val);
+                      if constexpr (m.time_format) {
+                          static_assert(std::is_same_v<FT, std::chrono::sys_days>,
+                                        "time_format currently only supports std::chrono::sys_days");
+                          so.[:f:] = parse_time<FT>(val, m.time_format->format);
+                      } else {
+                          so.[:f:] = parse_string<FT>(val);
+                      }
                       check_value(sn, so.[:f:], m);
                   }
                   ++i;
