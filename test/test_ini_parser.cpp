@@ -112,6 +112,24 @@ struct TestNamingPrecedence {
 };
 
 // ============================================================
+// Ignore models
+// ============================================================
+
+struct TestIgnoreField {
+    std::string name;
+    [[=ignore()]]
+    std::string skip;
+    int age;
+};
+
+struct TestIgnoreDefault {
+    [[=default_value("should_not_apply")]]
+    [[=ignore()]]
+    std::string skip;
+    std::string name;
+};
+
+// ============================================================
 // Root containers (each member = one section in INI)
 // ============================================================
 
@@ -132,6 +150,8 @@ struct TestNamingSnakeRoot     { TestNamingSnake val; };
 struct TestNamingInheritRoot   { [[=naming_convention(NamingConvention::Snake)]] TestNamingInherit val; };
 struct TestNamingOverrideRoot  { TestNamingOverride val; };
 struct TestNamingPrecedenceRoot{ TestNamingPrecedence val; };
+struct TestIgnoreFieldRoot    { TestIgnoreField val; };
+struct TestIgnoreDefaultRoot  { TestIgnoreDefault val; };
 
 // ============================================================
 // Tests
@@ -243,6 +263,23 @@ TEST(IniParser, naming_precedence) {
     TestNamingPrecedenceRoot m;
     IniParser::parse("test/naming_precedence.ini", m);
     EXPECT_EQ(m.val.myFieldValue, 55);
+}
+
+TEST(IniParser, ignore_field) {
+    TestIgnoreFieldRoot m;
+    IniParser::parse("test/ignore_field.ini", m);
+    EXPECT_EQ(m.val.name, "hello");
+    // 'skip' has [[=ignore]] — value from INI must NOT be loaded
+    EXPECT_EQ(m.val.skip, "");
+    EXPECT_EQ(m.val.age, 99);
+}
+
+TEST(IniParser, ignore_default) {
+    TestIgnoreDefaultRoot m;
+    IniParser::parse("test/ignore_default.ini", m);
+    // 'skip' has [[=ignore]] AND [[=default_value(...)]] — default must NOT apply
+    EXPECT_EQ(m.val.skip, "");
+    EXPECT_EQ(m.val.name, "found");
 }
 
 // ============================================================

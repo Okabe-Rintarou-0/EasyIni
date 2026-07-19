@@ -81,6 +81,12 @@ consteval NamingConvention naming_convention(NamingConvention::Type t) {
     return {t};
 }
 
+struct Ignore {
+    friend constexpr bool operator==(const Ignore&, const Ignore&) = default;
+};
+
+consteval Ignore ignore() { return {}; }
+
 // ============================================================
 // Naming convention string transform (compile-time)
 // ============================================================
@@ -180,6 +186,7 @@ struct FieldMeta {
     std::optional<Range<T>> range;
     std::optional<Length> length;
     std::optional<Default<T>> default_value;
+    bool ignore = false;
 };
 
 // ============================================================
@@ -240,6 +247,11 @@ consteval bool is_default_annotation() {
     return std::meta::template_of(std::meta::type_of(ann)) == ^^Default;
 }
 
+template <std::meta::info ann>
+consteval bool is_ignore_annotation() {
+    return std::meta::type_of(ann) == ^^Ignore;
+}
+
 template <std::meta::info member>
 consteval auto get_field_meta(std::optional<NamingConvention> parent_naming = {}) {
     using T = [:std::meta::type_of(member):];
@@ -249,6 +261,9 @@ consteval auto get_field_meta(std::optional<NamingConvention> parent_naming = {}
     template for (constexpr auto ann : annons) {
         if constexpr (is_length_annotation<ann>()) {
             meta.length = std::meta::extract<Length>(ann);
+        }
+        if constexpr (is_ignore_annotation<ann>()) {
+            meta.ignore = true;
         }
         if constexpr (std::meta::has_template_arguments(std::meta::type_of(ann))) {
             if constexpr (is_range_annotation<ann>()) {
@@ -401,6 +416,7 @@ struct IniParser {
             template for (constexpr auto f : sf) {
                 using FT = [:std::meta::type_of(f):];
                 auto m = get_field_meta<f>(pn);
+                if (m.ignore) continue;
                 if (m.default_value) so.[:f:] = m.default_value->value;
             }
         }
@@ -445,9 +461,10 @@ struct IniParser {
                   constexpr auto sf = std::define_static_array(
                       std::meta::nonstatic_data_members_of(^^ST, std::meta::access_context::current()));
                   template for (constexpr auto f : sf) {
+                      auto m = get_field_meta<f>(pn);
+                      if (m.ignore) continue;
                       constexpr auto fh = field_hash<f>(pn);
                       if (kh != fh) continue;
-                      auto m = get_field_meta<f>(pn);
                       if (m.identifier.get_ini_name() != key) continue;
                       using FT = [:std::meta::type_of(f):];
                       so.[:f:] = parse_string<FT>(val);
