@@ -9,4 +9,3 @@ benchmark/results.csv
 benchmark/large.ini
 benchmark/bench_ini_parser
 test/test_ini_parser
-figures/
