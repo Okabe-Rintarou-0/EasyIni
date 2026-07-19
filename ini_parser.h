@@ -52,6 +52,12 @@ struct Rename {
     friend constexpr bool operator==(const Rename&, const Rename&) = default;
 };
 
+struct NamingConvention {
+    enum Type : unsigned char { Snake, Camel, Pascal, Upper, Kebab };
+    Type type;
+    friend constexpr bool operator==(const NamingConvention&, const NamingConvention&) = default;
+};
+
 consteval Rename rename(std::string_view n) {
     return {std::define_static_string(n)};
 }
@@ -69,6 +75,90 @@ consteval Default<T> default_value(T v) { return {v}; }
 template <>
 consteval Default<const char*> default_value(const char* v) {
     return Default<const char*>{std::define_static_string(v)};
+}
+
+consteval NamingConvention naming_convention(NamingConvention::Type t) {
+    return {t};
+}
+
+// ============================================================
+// Naming convention string transform (compile-time)
+// ============================================================
+
+consteval std::string_view apply_naming_convention(std::string_view src, NamingConvention nc) {
+    if (src.empty()) return src;
+
+    char buf[128] = {};
+    int pos = 0;
+    bool first = true;
+    bool boundary = false;
+
+    auto emit_sep = [&] {
+        if (first) return;
+        switch (nc.type) {
+            case NamingConvention::Snake:
+            case NamingConvention::Upper: buf[pos++] = '_'; break;
+            case NamingConvention::Kebab: buf[pos++] = '-'; break;
+            default: break;
+        }
+    };
+
+    auto emit_char = [&](char c, bool cap) {
+        if (cap && c >= 'a' && c <= 'z') buf[pos++] = c - 'a' + 'A';
+        else if (!cap && c >= 'A' && c <= 'Z') buf[pos++] = c - 'A' + 'a';
+        else buf[pos++] = c;
+    };
+
+    for (size_t i = 0; i < src.size() && pos < 120; i++) {
+        char c = src[i];
+
+        if (c == '_') {
+            if (!first) boundary = true;
+            continue;
+        }
+
+        bool is_up = (c >= 'A' && c <= 'Z');
+        bool is_lo = (c >= 'a' && c <= 'z');
+
+        // Detect camelCase / PascalCase boundary
+        if (!first && is_up && !boundary) {
+            char p = src[i-1];
+            if (p == '_') boundary = true;
+            else if (p >= 'a' && p <= 'z') boundary = true;
+            else if (p >= 'A' && p <= 'Z' && i+1 < src.size()
+                     && src[i+1] >= 'a' && src[i+1] <= 'z')
+                boundary = true;
+        }
+
+        // Determine target case for this character
+        bool want_cap = false;
+        switch (nc.type) {
+            case NamingConvention::Snake:
+            case NamingConvention::Kebab:
+                want_cap = false;
+                break;
+            case NamingConvention::Camel:
+                want_cap = boundary && !first;
+                break;
+            case NamingConvention::Pascal:
+                want_cap = first || boundary;
+                break;
+            case NamingConvention::Upper:
+                want_cap = true;
+                break;
+        }
+
+        if (boundary && !first) {
+            emit_sep();
+            boundary = false;
+        }
+
+        emit_char(c, want_cap);
+        first = false;
+    }
+
+    buf[pos] = '\0';
+    return std::string_view{std::define_static_string(std::string_view(buf, pos))};
 }
 
 // ============================================================
@@ -97,6 +187,16 @@ struct FieldMeta {
 // ============================================================
 
 template <std::meta::info member>
+consteval std::optional<NamingConvention> get_naming_for() {
+    for (auto ann : std::meta::annotations_of(member)) {
+        if (std::meta::type_of(ann) == ^^NamingConvention) {
+            return std::meta::extract<NamingConvention>(ann);
+        }
+    }
+    return std::nullopt;
+}
+
+template <std::meta::info member>
 consteval std::optional<Rename> get_rename_for() {
     for (auto ann : std::meta::annotations_of(member)) {
         if (std::meta::type_of(ann) == ^^Rename) {
@@ -115,9 +215,13 @@ consteval std::string_view get_section_name_for() {
 }
 
 template <std::meta::info field>
-consteval auto get_field_identifier() {
+consteval auto get_field_identifier(std::optional<NamingConvention> parent_naming = {}) {
     auto rename = get_rename_for<field>();
+    auto field_naming = get_naming_for<field>();
+    auto effective = rename ? std::nullopt
+                  : (field_naming ? field_naming : parent_naming);
     auto name = std::meta::identifier_of(field);
+    if (effective) name = apply_naming_convention(name, *effective);
     return FieldIdentifier{name, rename};
 }
 
@@ -137,10 +241,10 @@ consteval bool is_default_annotation() {
 }
 
 template <std::meta::info member>
-consteval auto get_field_meta() {
+consteval auto get_field_meta(std::optional<NamingConvention> parent_naming = {}) {
     using T = [:std::meta::type_of(member):];
     FieldMeta<T> meta{};
-    meta.identifier = get_field_identifier<member>();
+    meta.identifier = get_field_identifier<member>(parent_naming);
     constexpr auto annons = std::define_static_array(std::meta::annotations_of(member));
     template for (constexpr auto ann : annons) {
         if constexpr (is_length_annotation<ann>()) {
@@ -165,8 +269,8 @@ consteval auto get_field_meta() {
 }
 
 template <std::meta::info field>
-consteval uint32_t field_hash() {
-    return fnv1a_hash(get_field_meta<field>().identifier.get_ini_name());
+consteval uint32_t field_hash(std::optional<NamingConvention> parent_naming = {}) {
+    return fnv1a_hash(get_field_meta<field>(parent_naming).identifier.get_ini_name());
 }
 
 // ============================================================
@@ -245,24 +349,6 @@ T parse_string(std::string_view sv) {
 // INI parser
 // ============================================================
 
-template <typename T>
-consteval bool is_value_type() {
-    return std::is_arithmetic_v<T> || std::is_enum_v<T> ||
-           std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view>;
-}
-
-template <typename T>
-consteval bool is_section_container() {
-    constexpr auto members = std::define_static_array(
-        std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::current()));
-    bool has_section = false;
-    template for (constexpr auto m : members) {
-        using MT = [:std::meta::type_of(m):];
-        if (std::is_class_v<MT> && !is_value_type<MT>()) has_section = true;
-    }
-    return has_section;
-}
-
 struct IniParser {
     template <typename T>
     static void check_value(std::string_view parent, const T &value, const FieldMeta<T> &meta) {
@@ -303,116 +389,72 @@ struct IniParser {
             return s.substr(b, e - b + 1);
         };
 
-        if constexpr (is_section_container<T>()) {
-            // ── Multi-section mode: each member is a sub-struct ──
-            constexpr auto sections = std::define_static_array(
-                std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::current()));
+        constexpr auto sections = std::define_static_array(
+            std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::current()));
 
-            template for (constexpr auto sm : sections) {
-                auto& so = model.[:sm:];
-                constexpr auto sf = std::define_static_array(
-                    std::meta::nonstatic_data_members_of(std::meta::type_of(sm), std::meta::access_context::current()));
-                template for (constexpr auto f : sf) {
-                    using FT = [:std::meta::type_of(f):];
-                    auto m = get_field_meta<f>();
-                    if (m.default_value) so.[:f:] = m.default_value->value;
-                }
+        template for (constexpr auto sm : sections) {
+            constexpr auto pn = get_naming_for<sm>();
+            auto& so = model.[:sm:];
+            using ST = [:std::meta::type_of(sm):];
+            constexpr auto sf = std::define_static_array(
+                std::meta::nonstatic_data_members_of(^^ST, std::meta::access_context::current()));
+            template for (constexpr auto f : sf) {
+                using FT = [:std::meta::type_of(f):];
+                auto m = get_field_meta<f>(pn);
+                if (m.default_value) so.[:f:] = m.default_value->value;
             }
+        }
 
-            std::string line;
-            int cur = -1;
+        std::string line;
+        int cur = -1;
 
-            while (std::getline(file, line)) {
-                std::string_view sv = line;
-                sv = trim(sv);
-                if (sv.empty() || sv[0] == ';' || sv[0] == '#') continue;
+        while (std::getline(file, line)) {
+            std::string_view sv = line;
+            sv = trim(sv);
+            if (sv.empty() || sv[0] == ';' || sv[0] == '#') continue;
 
-                if (sv[0] == '[') {
-                    auto c = sv.find(']');
-                    if (c == std::string_view::npos) continue;
-                    auto name = sv.substr(1, c - 1);
-                    cur = -1;
-                    { int i = 0;
-                      template for (constexpr auto sm : sections) {
-                          constexpr auto sn = get_section_name_for<sm>();
-                          if (name == sn) cur = i;
-                          ++i;
-                      } }
-                    continue;
-                }
-
-                if (cur < 0) continue;
-
-                auto eq = sv.find('=');
-                if (eq == std::string_view::npos) continue;
-                auto key = trim(sv.substr(0, eq));
-                auto val = trim(sv.substr(eq + 1));
-                auto kh = fnv1a_hash(key);
-
+            if (sv[0] == '[') {
+                auto c = sv.find(']');
+                if (c == std::string_view::npos) continue;
+                auto name = sv.substr(1, c - 1);
+                cur = -1;
                 { int i = 0;
                   template for (constexpr auto sm : sections) {
-                      if (i != cur) { ++i; continue; }
                       constexpr auto sn = get_section_name_for<sm>();
-                      auto& so = model.[:sm:];
-                      constexpr auto sf = std::define_static_array(
-                          std::meta::nonstatic_data_members_of(std::meta::type_of(sm), std::meta::access_context::current()));
-                      template for (constexpr auto f : sf) {
-                          constexpr auto fh = field_hash<f>();
-                          if (kh != fh) continue;
-                          auto m = get_field_meta<f>();
-                          if (m.identifier.get_ini_name() != key) continue;
-                          using FT = [:std::meta::type_of(f):];
-                          so.[:f:] = parse_string<FT>(val);
-                          check_value(sn, so.[:f:], m);
-                      }
+                      if (name == sn) cur = i;
                       ++i;
                   } }
-            }
-        } else {
-            // ── Single-section mode: T itself is the section ──
-            constexpr auto section = std::meta::identifier_of(^^T);
-            constexpr auto members = std::define_static_array(
-                std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::current()));
-
-            template for (constexpr auto member : members) {
-                using FT = [:std::meta::type_of(member):];
-                auto m = get_field_meta<member>();
-                if (m.default_value) model.[:member:] = m.default_value->value;
+                continue;
             }
 
-            std::string line;
-            bool in_section = false;
+            if (cur < 0) continue;
 
-            while (std::getline(file, line)) {
-                std::string_view sv = line;
-                sv = trim(sv);
-                if (sv.empty() || sv[0] == ';' || sv[0] == '#') continue;
+            auto eq = sv.find('=');
+            if (eq == std::string_view::npos) continue;
+            auto key = trim(sv.substr(0, eq));
+            auto val = trim(sv.substr(eq + 1));
+            auto kh = fnv1a_hash(key);
 
-                if (sv[0] == '[') {
-                    auto c = sv.find(']');
-                    if (c == std::string_view::npos) continue;
-                    in_section = (sv.substr(1, c - 1) == section);
-                    continue;
-                }
-
-                if (!in_section) continue;
-
-                auto eq = sv.find('=');
-                if (eq == std::string_view::npos) continue;
-                auto key = trim(sv.substr(0, eq));
-                auto val = trim(sv.substr(eq + 1));
-                auto kh = fnv1a_hash(key);
-
-                template for (constexpr auto member : members) {
-                    constexpr auto fh = field_hash<member>();
-                    if (kh != fh) continue;
-                    auto m = get_field_meta<member>();
-                    if (m.identifier.get_ini_name() != key) continue;
-                    using FT = [:std::meta::type_of(member):];
-                    model.[:member:] = parse_string<FT>(val);
-                    check_value(section, model.[:member:], m);
-                }
-            }
+            { int i = 0;
+              template for (constexpr auto sm : sections) {
+                  if (i != cur) { ++i; continue; }
+                  constexpr auto sn = get_section_name_for<sm>();
+                  constexpr auto pn = get_naming_for<sm>();
+                  auto& so = model.[:sm:];
+                  using ST = [:std::meta::type_of(sm):];
+                  constexpr auto sf = std::define_static_array(
+                      std::meta::nonstatic_data_members_of(^^ST, std::meta::access_context::current()));
+                  template for (constexpr auto f : sf) {
+                      constexpr auto fh = field_hash<f>(pn);
+                      if (kh != fh) continue;
+                      auto m = get_field_meta<f>(pn);
+                      if (m.identifier.get_ini_name() != key) continue;
+                      using FT = [:std::meta::type_of(f):];
+                      so.[:f:] = parse_string<FT>(val);
+                      check_value(sn, so.[:f:], m);
+                  }
+                  ++i;
+              } }
         }
     }
 };

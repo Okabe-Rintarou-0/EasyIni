@@ -4,7 +4,7 @@
 #include <string>
 
 // ============================================================
-// Test models
+// Leaf models (each maps to an INI section)
 // ============================================================
 
 struct TestSimple {
@@ -28,11 +28,6 @@ struct TestSectionRename {
     std::string value;
 };
 
-struct TestSectionRenameRoot {
-    [[=rename("RenamedSection")]]
-    TestSectionRename section;
-};
-
 struct TestMultiA {
     std::string name;
     int value;
@@ -40,11 +35,6 @@ struct TestMultiA {
 
 struct TestMultiB {
     std::string label;
-};
-
-struct TestMultiRoot {
-    TestMultiA a;
-    TestMultiB b;
 };
 
 struct TestRangeValid {
@@ -75,12 +65,8 @@ struct TestUnknownSection {
     std::string name;
 };
 
-struct TestUnknownSectionRoot {
-    TestUnknownSection section;
-};
-
 // ============================================================
-// Enum test models
+// Enum models
 // ============================================================
 
 enum class TestEnumColor {
@@ -104,27 +90,71 @@ struct TestEnumRenameModel {
 };
 
 // ============================================================
+// Naming convention models
+// ============================================================
+
+struct TestNamingSnake {
+    int myFieldValue;
+};
+
+struct TestNamingInherit {
+    int myFieldValue;
+};
+
+struct TestNamingOverride {
+    [[=naming_convention(NamingConvention::Pascal)]]
+    int myFieldValue;
+};
+
+struct TestNamingPrecedence {
+    [[=rename("custom_key")]]
+    int myFieldValue;
+};
+
+// ============================================================
+// Root containers (each member = one section in INI)
+// ============================================================
+
+struct TestSimpleRoot          { TestSimple val; };
+struct TestDefaultsRoot        { TestDefaults val; };
+struct TestFieldRenameRoot     { TestFieldRename val; };
+struct TestSectionRenameRoot   { [[=rename("RenamedSection")]] TestSectionRename section; };
+struct TestMultiRoot           { TestMultiA a; TestMultiB b; };
+struct TestCommentsRoot        { TestComments val; };
+struct TestWhitespaceRoot      { TestWhitespace val; };
+struct TestUnknownKeyRoot      { TestUnknownKey val; };
+struct TestUnknownSectionRoot  { TestUnknownSection section; };
+struct TestRangeValidRoot      { TestRangeValid val; };
+struct TestLengthValidRoot     { TestLengthValid val; };
+struct TestEnumModelRoot       { TestEnumModel val; };
+struct TestEnumRenameModelRoot { TestEnumRenameModel val; };
+struct TestNamingSnakeRoot     { TestNamingSnake val; };
+struct TestNamingInheritRoot   { [[=naming_convention(NamingConvention::Snake)]] TestNamingInherit val; };
+struct TestNamingOverrideRoot  { TestNamingOverride val; };
+struct TestNamingPrecedenceRoot{ TestNamingPrecedence val; };
+
+// ============================================================
 // Tests
 // ============================================================
 
 TEST(IniParser, simple_parse) {
-    TestSimple m;
+    TestSimpleRoot m;
     IniParser::parse("test/simple.ini", m);
-    EXPECT_EQ(m.name, "Alice");
-    EXPECT_EQ(m.age, 25);
+    EXPECT_EQ(m.val.name, "Alice");
+    EXPECT_EQ(m.val.age, 25);
 }
 
 TEST(IniParser, default_values) {
-    TestDefaults m;
+    TestDefaultsRoot m;
     IniParser::parse("test/defaults.ini", m);
-    EXPECT_EQ(m.name, "default_name");
-    EXPECT_EQ(m.value, 42);
+    EXPECT_EQ(m.val.name, "default_name");
+    EXPECT_EQ(m.val.value, 42);
 }
 
 TEST(IniParser, field_rename) {
-    TestFieldRename m;
+    TestFieldRenameRoot m;
     IniParser::parse("test/field_rename.ini", m);
-    EXPECT_EQ(m.name, "Bob");
+    EXPECT_EQ(m.val.name, "Bob");
 }
 
 TEST(IniParser, section_rename) {
@@ -142,23 +172,23 @@ TEST(IniParser, multi_section) {
 }
 
 TEST(IniParser, comments) {
-    TestComments m;
+    TestCommentsRoot m;
     IniParser::parse("test/comments.ini", m);
-    EXPECT_EQ(m.name, "Alice");
-    EXPECT_EQ(m.age, 30);
+    EXPECT_EQ(m.val.name, "Alice");
+    EXPECT_EQ(m.val.age, 30);
 }
 
 TEST(IniParser, whitespace) {
-    TestWhitespace m;
+    TestWhitespaceRoot m;
     IniParser::parse("test/whitespace.ini", m);
-    EXPECT_EQ(m.name, "hello");
-    EXPECT_EQ(m.value, 42);
+    EXPECT_EQ(m.val.name, "hello");
+    EXPECT_EQ(m.val.value, 42);
 }
 
 TEST(IniParser, unknown_key) {
-    TestUnknownKey m;
+    TestUnknownKeyRoot m;
     IniParser::parse("test/unknown_key.ini", m);
-    EXPECT_EQ(m.name, "found");
+    EXPECT_EQ(m.val.name, "found");
 }
 
 TEST(IniParser, unknown_section) {
@@ -168,27 +198,51 @@ TEST(IniParser, unknown_section) {
 }
 
 TEST(IniParser, range_valid) {
-    TestRangeValid m;
+    TestRangeValidRoot m;
     IniParser::parse("test/range_valid.ini", m);
-    EXPECT_EQ(m.value, 50);
+    EXPECT_EQ(m.val.value, 50);
 }
 
 TEST(IniParser, length_valid) {
-    TestLengthValid m;
+    TestLengthValidRoot m;
     IniParser::parse("test/length_valid.ini", m);
-    EXPECT_EQ(m.name, "hello");
+    EXPECT_EQ(m.val.name, "hello");
 }
 
 TEST(IniParser, enum_parse) {
-    TestEnumModel m;
+    TestEnumModelRoot m;
     IniParser::parse("test/enum_parse.ini", m);
-    EXPECT_EQ(m.color, TestEnumColor::Green);
+    EXPECT_EQ(m.val.color, TestEnumColor::Green);
 }
 
 TEST(IniParser, enum_rename) {
-    TestEnumRenameModel m;
+    TestEnumRenameModelRoot m;
     IniParser::parse("test/enum_rename.ini", m);
-    EXPECT_EQ(m.color, TestEnumRenamed::Red);
+    EXPECT_EQ(m.val.color, TestEnumRenamed::Red);
+}
+
+TEST(IniParser, naming_snake) {
+    TestNamingSnakeRoot m;
+    IniParser::parse("test/naming_snake.ini", m);
+    EXPECT_EQ(m.val.myFieldValue, 42);
+}
+
+TEST(IniParser, naming_inherit) {
+    TestNamingInheritRoot m;
+    IniParser::parse("test/naming_inherit.ini", m);
+    EXPECT_EQ(m.val.myFieldValue, 99);
+}
+
+TEST(IniParser, naming_override) {
+    TestNamingOverrideRoot m;
+    IniParser::parse("test/naming_override.ini", m);
+    EXPECT_EQ(m.val.myFieldValue, 77);
+}
+
+TEST(IniParser, naming_precedence) {
+    TestNamingPrecedenceRoot m;
+    IniParser::parse("test/naming_precedence.ini", m);
+    EXPECT_EQ(m.val.myFieldValue, 55);
 }
 
 // ============================================================
