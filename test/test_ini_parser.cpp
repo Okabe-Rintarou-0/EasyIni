@@ -79,14 +79,14 @@ struct TestEnumModel {
     TestEnumColor color;
 };
 
-enum class TestEnumRenamed {
+enum class TestEnumBasic {
     Red,
     Green,
     Blue
 };
 
-struct TestEnumRenameModel {
-    TestEnumRenamed color;
+struct TestEnumBasicModel {
+    TestEnumBasic color;
 };
 
 // ============================================================
@@ -145,7 +145,7 @@ struct TestUnknownSectionRoot  { TestUnknownSection section; };
 struct TestRangeValidRoot      { TestRangeValid val; };
 struct TestLengthValidRoot     { TestLengthValid val; };
 struct TestEnumModelRoot       { TestEnumModel val; };
-struct TestEnumRenameModelRoot { TestEnumRenameModel val; };
+struct TestEnumBasicModelRoot  { TestEnumBasicModel val; };
 struct TestNamingSnakeRoot     { TestNamingSnake val; };
 struct TestNamingInheritRoot   { [[=naming_convention(NamingConvention::Snake)]] TestNamingInherit val; };
 struct TestNamingOverrideRoot  { TestNamingOverride val; };
@@ -235,10 +235,10 @@ TEST(IniParser, enum_parse) {
     EXPECT_EQ(m.val.color, TestEnumColor::Green);
 }
 
-TEST(IniParser, enum_rename) {
-    TestEnumRenameModelRoot m;
-    IniParser::parse("test/enum_rename.ini", m);
-    EXPECT_EQ(m.val.color, TestEnumRenamed::Red);
+TEST(IniParser, enum_basic) {
+    TestEnumBasicModelRoot m;
+    IniParser::parse("test/enum_basic.ini", m);
+    EXPECT_EQ(m.val.color, TestEnumBasic::Red);
 }
 
 TEST(IniParser, naming_snake) {

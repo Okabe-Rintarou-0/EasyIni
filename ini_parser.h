@@ -414,10 +414,9 @@ struct IniParser {
             constexpr auto sf = std::define_static_array(
                 std::meta::nonstatic_data_members_of(^^ST, std::meta::access_context::current()));
             template for (constexpr auto f : sf) {
-                using FT = [:std::meta::type_of(f):];
-                auto m = get_field_meta<f>(pn);
-                if (m.ignore) continue;
-                if (m.default_value) so.[:f:] = m.default_value->value;
+                constexpr auto m = get_field_meta<f>(pn);
+                if constexpr (m.ignore) continue;
+                if constexpr (m.default_value) so.[:f:] = m.default_value->value;
             }
         }
 
@@ -461,11 +460,12 @@ struct IniParser {
                   constexpr auto sf = std::define_static_array(
                       std::meta::nonstatic_data_members_of(^^ST, std::meta::access_context::current()));
                   template for (constexpr auto f : sf) {
-                      auto m = get_field_meta<f>(pn);
-                      if (m.ignore) continue;
-                      constexpr auto fh = field_hash<f>(pn);
+                      constexpr auto m = get_field_meta<f>(pn);
+                      if constexpr (m.ignore) continue;
+                      constexpr auto ini_name = m.identifier.get_ini_name();
+                      constexpr auto fh = fnv1a_hash(ini_name);
                       if (kh != fh) continue;
-                      if (m.identifier.get_ini_name() != key) continue;
+                      if (ini_name != key) continue;
                       using FT = [:std::meta::type_of(f):];
                       so.[:f:] = parse_string<FT>(val);
                       check_value(sn, so.[:f:], m);
