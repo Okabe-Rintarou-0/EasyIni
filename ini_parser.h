@@ -98,6 +98,16 @@ consteval TimeFormat time_format(std::string_view fmt) {
     return {std::define_static_string(fmt)};
 }
 
+struct DenyUnknown {
+    friend constexpr bool operator==(const DenyUnknown&, const DenyUnknown&) = default;
+};
+
+consteval DenyUnknown deny_unknown() { return {}; }
+
+template <typename> struct is_optional_impl : std::false_type {};
+template <typename T> struct is_optional_impl<std::optional<T>> : std::true_type {};
+template <typename T> constexpr bool is_optional_v = is_optional_impl<T>::value;
+
 // ============================================================
 // Naming convention string transform (compile-time)
 // ============================================================
@@ -269,6 +279,19 @@ consteval bool is_time_format_annotation() {
     return std::meta::type_of(ann) == ^^TimeFormat;
 }
 
+template <std::meta::info ann>
+consteval bool is_deny_unknown_annotation() {
+    return std::meta::type_of(ann) == ^^DenyUnknown;
+}
+
+template <std::meta::info member>
+consteval bool get_deny_unknown_for() {
+    for (auto ann : std::meta::annotations_of(member)) {
+        if (std::meta::type_of(ann) == ^^DenyUnknown) return true;
+    }
+    return false;
+}
+
 template <std::meta::info member>
 consteval auto get_field_meta(std::optional<NamingConvention> parent_naming = {}) {
     using T = [:std::meta::type_of(member):];
@@ -361,6 +384,13 @@ inline std::string parse_string<std::string>(std::string_view sv) {
 template <>
 inline bool parse_string<bool>(std::string_view sv) {
     return sv == "true" || sv == "1" || sv == "yes" || sv == "on";
+}
+
+template <typename T>
+    requires is_optional_v<T>
+T parse_string(std::string_view sv) {
+    using Inner = typename T::value_type;
+    return T{parse_string<Inner>(sv)};
 }
 
 template <typename T>
@@ -497,6 +527,14 @@ struct IniParser {
                       if (name == sn) cur = i;
                       ++i;
                   } }
+                if (cur < 0) {
+                    template for (constexpr auto sm : sections) {
+                        if constexpr (get_deny_unknown_for<sm>()) {
+                            std::cerr << "Unknown section \"" << name << "\"" << std::endl;
+                            std::abort();
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -513,17 +551,19 @@ struct IniParser {
                   if (i != cur) { ++i; continue; }
                   constexpr auto sn = get_section_name_for<sm>();
                   constexpr auto pn = get_naming_for<sm>();
+                  constexpr auto du = get_deny_unknown_for<sm>();
                   auto& so = model.[:sm:];
                   using ST = [:std::meta::type_of(sm):];
                   constexpr auto sf = std::define_static_array(
                       std::meta::nonstatic_data_members_of(^^ST, std::meta::access_context::current()));
+                  bool found = false;
                   template for (constexpr auto f : sf) {
                       constexpr auto m = get_field_meta<f>(pn);
                       if constexpr (m.ignore) continue;
                       constexpr auto ini_name = m.identifier.get_ini_name();
                       constexpr auto fh = fnv1a_hash(ini_name);
-                      if (kh != fh) continue;
-                      if (ini_name != key) continue;
+                      if (kh != fh || ini_name != key) continue;
+                      found = true;
                       using FT = [:std::meta::type_of(f):];
                       if constexpr (m.time_format) {
                           static_assert(std::is_same_v<FT, std::chrono::sys_days>,
@@ -533,6 +573,12 @@ struct IniParser {
                           so.[:f:] = parse_string<FT>(val);
                       }
                       check_value(sn, so.[:f:], m);
+                  }
+                  if constexpr (du) {
+                      if (!found) {
+                          std::cerr << sn << ":: unknown key \"" << key << "\"" << std::endl;
+                          std::abort();
+                      }
                   }
                   ++i;
               } }

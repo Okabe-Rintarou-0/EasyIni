@@ -140,6 +140,32 @@ struct TestTimeDate {
 };
 
 // ============================================================
+// Optional models
+// ============================================================
+
+struct TestOptPresent {
+    std::optional<int> value;
+    std::string name;
+};
+
+struct TestOptAbsent {
+    std::optional<int> value;
+    std::string name;
+};
+
+// ============================================================
+// DenyUnknown models
+// ============================================================
+
+struct TestDenyKey {
+    std::string name;
+};
+
+struct TestDenySection {
+    std::string name;
+};
+
+// ============================================================
 // Root containers (each member = one section in INI)
 // ============================================================
 
@@ -163,6 +189,10 @@ struct TestNamingPrecedenceRoot{ TestNamingPrecedence val; };
 struct TestIgnoreFieldRoot    { TestIgnoreField val; };
 struct TestIgnoreDefaultRoot  { TestIgnoreDefault val; };
 struct TestTimeDateRoot       { TestTimeDate val; };
+struct TestOptPresentRoot     { TestOptPresent val; };
+struct TestOptAbsentRoot      { TestOptAbsent val; };
+struct TestDenyKeyRoot        { [[=deny_unknown()]] TestDenyKey val; };
+struct TestDenySectionRoot    { [[=deny_unknown()]] TestDenySection val; };
 
 // ============================================================
 // Tests
@@ -300,6 +330,37 @@ TEST(IniParser, time_parse_date) {
     EXPECT_EQ(ymd.year(), std::chrono::year{2024});
     EXPECT_EQ(ymd.month(), std::chrono::month{6});
     EXPECT_EQ(ymd.day(), std::chrono::day{15});
+}
+
+TEST(IniParser, optional_present) {
+    TestOptPresentRoot m;
+    IniParser::parse("test/optional_present.ini", m);
+    EXPECT_TRUE(m.val.value.has_value());
+    EXPECT_EQ(*m.val.value, 42);
+    EXPECT_EQ(m.val.name, "hello");
+}
+
+TEST(IniParser, optional_absent) {
+    TestOptAbsentRoot m;
+    IniParser::parse("test/optional_absent.ini", m);
+    EXPECT_FALSE(m.val.value.has_value());
+    EXPECT_EQ(m.val.name, "hello");
+}
+
+TEST(IniParser, deny_unknown_key) {
+    TestDenyKeyRoot m;
+    EXPECT_DEATH(
+        IniParser::parse("test/deny_unknown_key.ini", m),
+        "unknown key"
+    );
+}
+
+TEST(IniParser, deny_unknown_section) {
+    TestDenySectionRoot m;
+    EXPECT_DEATH(
+        IniParser::parse("test/deny_unknown_section.ini", m),
+        "Unknown section"
+    );
 }
 
 // ============================================================
