@@ -1,123 +1,118 @@
-# EasyIni — C++26 Reflection INI Parser
+# EasyIni — Reflection-based INI Parser for C++26
 
-A compile-time reflection-driven INI parser using C++26 `std::meta` (P2996) with `clang-p2996`.
+A lightweight INI parser powered by **C++26 compile-time reflection (`std::meta`)**.
+
+Using Bloomberg's **clang-p2996**, EasyIni automatically maps INI files to user-defined structs **without registration, macros, or manual binding code**.
+
+```cpp
+struct Config {
+    std::string host;
+
+    [[=range(0,65535)]]
+    int port;
+
+    [[=default_value(false)]]
+    bool debug;
+};
+
+Config cfg;
+IniParser::parse("config.ini", cfg);
+```
+
+---
+
+## Highlights
+
+- Zero registration or binding code
+- Compile-time reflection (`std::meta`)
+- Automatic section-to-struct mapping
+- Annotation-based customization
+- Built-in validation (range, length, defaults)
+- Optional values and enum support
+- O(1) field dispatch using compile-time FNV-1a hashing
+
+---
 
 ## Supported Features
 
-| Feature | Annotation / Mechanism | Example |
-|---|---|---|
-| **Multi-section** | Each root struct member = one `[Section]` in INI | `struct Root { Person p; Config c; }` |
-| **Section rename** | `rename("...")` on root member | `[[=rename("Server")]] Config cfg;` |
-| **Field rename** | `rename("...")` on field | `[[=rename("full_name")]] string name;` |
-| **Default value** | `default_value(v)` | `[[=default_value(32)]] int age;` |
-| **Range constraint** | `range(min, max)` | `[[=range(0, 65535)]] int port;` |
-| **Length constraint** | `length(min, max)` | `[[=length(0, 4)]] string code;` |
-| **Naming convention** | `naming_convention(Type)` on root member, inherited by fields | `[[=naming_convention(Snake)]] Section sec;` |
-| **Field naming override** | `naming_convention(Type)` on field, overrides parent | `[[=naming_convention(Pascal)]] int field;` |
-| **Ignore field** | `ignore()` | `[[=ignore()]] string cache;` |
-| **Optional field** | `std::optional<T>` (no annotation needed) | `std::optional<int> port;` |
-| **Deny unknown keys** | `deny_unknown()` on root member | `[[=deny_unknown()]] Section sec;` |
-| **Deny unknown sections** | `deny_unknown()` on root member | triggers abort on unrecognized `[Section]` |
-| **Time format** | `time_format("...")` + `std::chrono::sys_days` | `[[=time_format("%Y-%m-%d")]] sys_days date;` |
-| **Enum class** | Automatic string-to-enum matching | `enum class Color { Red, Green };` |
-| **Compile-time hash dispatch** | FNV-1a — O(1) field lookup | automatic |
+| Feature | Annotation | Example |
+|----------|------------|---------|
+| Multi-section mapping | root struct | `Root { Server server; Client client; }` |
+| Rename section | `rename("Server")` | `[[=rename("Server")]] Config cfg;` |
+| Rename field | `rename("full_name")` | `[[=rename("full_name")]] std::string name;` |
+| Default value | `default_value(v)` | `[[=default_value(32)]] int age;` |
+| Range validation | `range(min, max)` | `[[=range(0,65535)]] int port;` |
+| String length validation | `length(min, max)` | `[[=length(0,8)]] std::string code;` |
+| Naming convention | `naming_convention(Snake)` | automatic key conversion |
+| Ignore field | `ignore()` | skipped during parsing |
+| Optional field | `std::optional<T>` | key may be omitted |
+| Reject unknown entries | `deny_unknown()` | unknown keys or sections become errors |
+| Time parsing | `time_format("%Y-%m-%d")` | `std::chrono::sys_days` |
+| Enum parsing | automatic | `Color::Red ⇄ "Red"` |
 
-## Environment
+---
 
-Requires Bloomberg's [clang-p2996](https://github.com/bloomberg/clang-p2996) fork.
-
-```bash
-docker run --rm -it -v .:/work ghcr.io/bloomberg/clang-p2996:latest
-cd /work
-bash build.sh
-./ini_parser
-```
-
-## Usage
+## Example
 
 ```cpp
 struct Person {
     [[=rename("full_name")]]
     std::string name;
+
     [[=default_value(32)]]
     int age;
+
     [[=default_value("Chinese")]]
     std::string nationality;
 };
 
-struct Config {
+struct Server {
     std::string host;
-    [[=range(0, 65535)]]
+
+    [[=range(0,65535)]]
     int port;
+
+    [[=default_value(false)]]
     bool debug;
-    [[=default_value(5.0f)]]
-    float timeout;
 };
 
-struct AllModels {
+struct Config {
     Person person;
-    Config config;
+    Server server;
 };
 
-AllModels all;
-IniParser::parse("combined.ini", all);
+Config cfg;
+IniParser::parse("config.ini", cfg);
 ```
 
-## Annotations
-
-| Annotation | Applies to | Purpose |
-|---|---|---|
-| `rename("x")` | field / root member | Override INI key/section name |
-| `range(min, max)` | field | Arithmetic range validation |
-| `default_value(v)` | field | Default when key missing |
-| `length(min, max)` | field | String length validation |
-| `naming_convention(t)` | root member / field | Auto-transform field names |
-| `ignore()` | field | Skip field entirely |
-| `time_format("fmt")` | field | Parse `sys_days` with format |
-| `deny_unknown()` | root member | Abort on unknown key or section |
-
-## Naming Convention Types
-
-| Type | `myFieldName` → |
-|---|---|
-| `Snake` | `my_field_name` |
-| `Camel` | `myFieldName` |
-| `Pascal` | `MyFieldName` |
-| `Upper` | `MY_FIELD_NAME` |
-| `Kebab` | `my-field-name` |
-
-## Build & Test
-
-```bash
-bash build.sh          # build main + run unit tests
-bash build_bench.sh    # benchmark comparison vs SimpleIni
-```
+---
 
 ## Benchmark
 
-Comparison against [SimpleIni](https://github.com/brofield/simpleini). 1000-line INI file,
-100 iterations per case.
+Benchmark against **SimpleIni** using a **1000-line INI file**, averaged over **100 iterations**.
 
-| Metric | Reflection | SimpleIni |
-|---|---|---|
-| Total (parse+bind) | **6,918 µs** | 7,753 µs |
-| Bind only | automatic (0 lines) | 21 µs (20× `GetValue`) |
-| Lines of binding code | 0 | 20 |
+| Metric | EasyIni | SimpleIni |
+|---------|---------|-----------|
+| Parse + bind | **6,918 µs** | 7,753 µs |
+| Binding code | **0 lines** | ~20 `GetValue()` calls |
+| Field lookup | Compile-time FNV-1a hash | Runtime string lookup |
 
-![Benchmark comparison](figures/bench_comparison.png)
+### Results
 
-12% faster overall, zero manual binding code, O(1) field lookup via compile-time FNV-1a hashing.
+- **~12% faster** than SimpleIni
+- **Zero manual binding code**
+- **O(1) field lookup** via compile-time hashing
 
-## How It Works
+---
 
-```cpp
-template <typename T>
-void print_model(const T& value) {
-    template for (constexpr auto member : std::define_static_array(
-        std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::current())))
-    {
-        std::cout << std::meta::identifier_of(member) << "="
-                  << value.[:member:] << " ";
-    }
-}
+## Requirements
+
+EasyIni currently requires Bloomberg's experimental **clang-p2996** compiler with C++26 reflection support.
+
+```bash
+docker run --rm -it -v .:/work ghcr.io/bloomberg/clang-p2996:latest
+
+cd /work
+bash build.sh
+./ini_parser
 ```
